@@ -4,7 +4,6 @@
 package cmd
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -16,11 +15,15 @@ import (
 
 	// Importing for infrastructure provider plugin registrations
 
+	"github.com/azure/azure-dev/cli/azd/pkg/alpha"
 	"github.com/azure/azure-dev/cli/azd/pkg/azd"
+	"github.com/azure/azure-dev/cli/azd/pkg/extensions"
 	"github.com/azure/azure-dev/cli/azd/pkg/ioc"
 	"github.com/azure/azure-dev/cli/azd/pkg/platform"
 
 	"github.com/azure/azure-dev/cli/azd/internal"
+	"github.com/azure/azure-dev/cli/azd/internal/cmd"
+	"github.com/azure/azure-dev/cli/azd/internal/cmd/add"
 	"github.com/azure/azure-dev/cli/azd/internal/telemetry"
 	"github.com/azure/azure-dev/cli/azd/pkg/output"
 	"github.com/spf13/cobra"
@@ -29,7 +32,13 @@ import (
 // Creates the root Cobra command for AZD.
 // staticHelp - False, except for running for doc generation
 // middlewareChain - nil, except for running unit tests
-func NewRootCmd(ctx context.Context, staticHelp bool, middlewareChain []*actions.MiddlewareRegistration) *cobra.Command {
+// rootContainer - The IoC container to use for registering and resolving dependencies. If nil is provided, a new
+// container empty will be created.
+func NewRootCmd(
+	staticHelp bool,
+	middlewareChain []*actions.MiddlewareRegistration,
+	rootContainer *ioc.NestedContainer,
+) *cobra.Command {
 	prevDir := ""
 	opts := &internal.GlobalCommandOptions{GenerateStaticHelp: staticHelp}
 	opts.EnableTelemetry = telemetry.IsTelemetryEnabled()
@@ -134,6 +143,14 @@ func NewRootCmd(ctx context.Context, staticHelp bool, middlewareChain []*actions
 		},
 	})
 
+	root.Add("vs-server", &actions.ActionDescriptorOptions{
+		Command:        newVsServerCmd(),
+		FlagsResolver:  newVsServerFlags,
+		ActionResolver: newVsServerAction,
+		OutputFormats:  []output.Format{output.NoneFormat},
+		DefaultFormat:  output.NoneFormat,
+	})
+
 	root.Add("show", &actions.ActionDescriptorOptions{
 		Command:        newShowCmd(),
 		FlagsResolver:  newShowFlags,
@@ -206,13 +223,13 @@ func NewRootCmd(ctx context.Context, staticHelp bool, middlewareChain []*actions
 
 	root.
 		Add("provision", &actions.ActionDescriptorOptions{
-			Command:        newProvisionCmd(),
-			FlagsResolver:  newProvisionFlags,
-			ActionResolver: newProvisionAction,
+			Command:        cmd.NewProvisionCmd(),
+			FlagsResolver:  cmd.NewProvisionFlags,
+			ActionResolver: cmd.NewProvisionAction,
 			OutputFormats:  []output.Format{output.JsonFormat, output.NoneFormat},
 			DefaultFormat:  output.NoneFormat,
 			HelpOptions: actions.ActionHelpOptions{
-				Description: getCmdProvisionHelpDescription,
+				Description: cmd.GetCmdProvisionHelpDescription,
 				Footer:      getCmdHelpDefaultFooter,
 			},
 			GroupingOptions: actions.CommandGroupOptions{
@@ -246,14 +263,14 @@ func NewRootCmd(ctx context.Context, staticHelp bool, middlewareChain []*actions
 
 	root.
 		Add("deploy", &actions.ActionDescriptorOptions{
-			Command:        newDeployCmd(),
-			FlagsResolver:  newDeployFlags,
-			ActionResolver: newDeployAction,
+			Command:        cmd.NewDeployCmd(),
+			FlagsResolver:  cmd.NewDeployFlags,
+			ActionResolver: cmd.NewDeployAction,
 			OutputFormats:  []output.Format{output.JsonFormat, output.NoneFormat},
 			DefaultFormat:  output.NoneFormat,
 			HelpOptions: actions.ActionHelpOptions{
-				Description: getCmdDeployHelpDescription,
-				Footer:      getCmdDeployHelpFooter,
+				Description: cmd.GetCmdDeployHelpDescription,
+				Footer:      cmd.GetCmdDeployHelpFooter,
 			},
 			GroupingOptions: actions.CommandGroupOptions{
 				RootLevelHelp: actions.CmdGroupManage,
@@ -306,6 +323,11 @@ func NewRootCmd(ctx context.Context, staticHelp bool, middlewareChain []*actions
 			},
 		}).
 		UseMiddleware("hooks", middleware.NewHooksMiddleware)
+	root.
+		Add("add", &actions.ActionDescriptorOptions{
+			Command:        add.NewAddCmd(),
+			ActionResolver: add.NewAddAction,
+		})
 
 	// Register any global middleware defined by the caller
 	if len(middlewareChain) > 0 {
@@ -317,24 +339,53 @@ func NewRootCmd(ctx context.Context, staticHelp bool, middlewareChain []*actions
 	// Global middleware registration
 	root.
 		UseMiddleware("debug", middleware.NewDebugMiddleware).
-		UseMiddleware("experimentation", middleware.NewExperimentationMiddleware).
+		UseMiddleware("ux", middleware.NewUxMiddleware).
 		UseMiddlewareWhen("telemetry", middleware.NewTelemetryMiddleware, func(descriptor *actions.ActionDescriptor) bool {
 			return !descriptor.Options.DisableTelemetry
 		})
 
-	// Register common dependencies for the IoC container
-	ioc.RegisterInstance(ioc.Global, ctx)
-	registerCommonDependencies(ioc.Global)
+	// Register common dependencies for the IoC rootContainer
+	if rootContainer == nil {
+		rootContainer = ioc.NewNestedContainer(nil)
+	}
+	ioc.RegisterNamedInstance(rootContainer, "root-cmd", rootCmd)
+	registerCommonDependencies(rootContainer)
+
+	// Conditionally register the 'extension' commands if the feature is enabled
+	err := rootContainer.Invoke(func(alphaFeatureManager *alpha.FeatureManager, extensionManager *extensions.Manager) error {
+		if alphaFeatureManager.IsEnabled(extensions.FeatureExtensions) {
+			extensionActions(root)
+
+			installedExtensions, err := extensionManager.ListInstalled()
+			if err != nil {
+				return fmt.Errorf("Failed to get installed extensions: %w", err)
+			}
+
+			if err := bindExtensions(rootContainer, root, installedExtensions); err != nil {
+				return fmt.Errorf("Failed to bind extensions: %w", err)
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		panic(err)
+	}
 
 	// Initialize the platform specific components for the IoC container
 	// Only container resolution errors will return an error
 	// Invalid configurations will fall back to default platform
-	if _, err := platform.Initialize(ioc.Global, azd.PlatformKindDefault); err != nil {
+	if _, err := platform.Initialize(rootContainer, azd.PlatformKindDefault); err != nil {
 		panic(err)
 	}
 
 	// Compose the hierarchy of action descriptions into cobra commands
-	cobraBuilder := NewCobraBuilder(ioc.Global)
+	var cobraBuilder *CobraBuilder
+	if err := rootContainer.Resolve(&cobraBuilder); err != nil {
+		panic(err)
+	}
+
 	cmd, err := cobraBuilder.BuildCommand(root)
 
 	if err != nil {
@@ -357,7 +408,7 @@ func NewRootCmd(ctx context.Context, staticHelp bool, middlewareChain []*actions
 
 func getCmdRootHelpFooter(cmd *cobra.Command) string {
 	return fmt.Sprintf("%s\n%s\n%s\n\n%s\n\n%s",
-		output.WithBold(output.WithUnderline("Deploying a sample application")),
+		output.WithBold("%s", output.WithUnderline("Deploying a sample application")),
 		"Initialize from a sample application by running the "+
 			output.WithHighLightFormat("azd init --template ")+
 			output.WithWarningFormat("[%s]", "template name")+" command in an empty directory.",
@@ -402,8 +453,13 @@ func getCmdRootHelpCommands(cmd *cobra.Command) (result string) {
 
 	var paragraph []string
 	for _, title := range groups {
+		groupCommands := commandGroups[string(title)]
+		if len(groupCommands) == 0 {
+			continue
+		}
+
 		paragraph = append(paragraph, fmt.Sprintf("  %s\n    %s\n",
-			output.WithBold(string(title)),
+			output.WithBold("%s", string(title)),
 			strings.Join(commandGroups[string(title)], "\n    ")))
 	}
 	return strings.Join(paragraph, "\n")
