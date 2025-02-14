@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+
 package internal
 
 import (
@@ -14,6 +17,10 @@ const AzdUserAgentEnvVar = "AZURE_DEV_USER_AGENT"
 // Well-known user agents prefixes.
 const (
 	VsCodeAgentPrefix = "vscode:/extensions/ms-azuretools.azure-dev"
+	// cspell: disable-next-line
+	VsAgentPrefix = "vside:/webtools/azdev.publish"
+	// cspell: disable-next-line
+	VsCodeAzureCopilotAgentPrefix = "ms-azuretools.vscode-azure-github-copilot"
 )
 
 // UserAgent() creates the user agent string for azd.

@@ -41,6 +41,9 @@ const (
 	// guarantees.
 	MachineIdKey = attribute.Key("machine.id")
 
+	// The unique DevDeviceId associated with the device.
+	DevDeviceIdKey = attribute.Key("machine.devdeviceid")
+
 	// An enumeration of possible environments that the application is running on.
 	//
 	// Example: Desktop, Azure Pipelines, Visual Studio.
@@ -96,6 +99,12 @@ const (
 	PlatformTypeKey = attribute.Key("platform.type")
 )
 
+// Machine-level configuration related attribute.
+const (
+	// Tracks what alpha features are enabled on each command
+	AlphaFeaturesKey = attribute.Key("config.features")
+)
+
 // Environment related attributes
 const (
 	// Hashed environment name
@@ -127,9 +136,10 @@ const (
 	// Environments that are wrapped by an intermediate calling program, and are significant enough to warrant
 	// being an environment and not an environment modifier.
 
-	EnvVisualStudio     = "Visual Studio"
-	EnvVisualStudioCode = "Visual Studio Code"
-	EnvCloudShell       = "Azure CloudShell"
+	EnvVisualStudio       = "Visual Studio"
+	EnvVisualStudioCode   = "Visual Studio Code"
+	EnvVSCodeAzureCopilot = "VS Code Azure GitHub Copilot"
+	EnvCloudShell         = "Azure CloudShell"
 
 	// Continuous Integration environments
 
@@ -165,14 +175,6 @@ const (
 
 // The value used for ServiceNameKey
 const ServiceNameAzd = "azd"
-
-// Additional fields of events.AccountSubscriptionsListEvent
-const (
-	// Number of tenants found
-	AccountSubscriptionsListTenantsFound = attribute.Key("tenants.found")
-	// Number of tenants where listing of subscriptions failed
-	AccountSubscriptionsListTenantsFailed = attribute.Key("tenants.failed")
-)
 
 // Error related fields
 const (
@@ -250,4 +252,23 @@ const (
 
 	// The last step recorded during the app init process.
 	AppInitLastStep = attribute.Key("appinit.lastStep")
+)
+
+// Remote docker build related fields
+const (
+	RemoteBuildCount = attribute.Key("container.remoteBuild.count")
+)
+
+// JSON-RPC related fields
+const (
+	// Logical name of the method from the RPC interface
+	// perspective, which can be different from the name of any implementing
+	// method/function. See semconv.RPCMethodKey.
+	RpcMethod = semconv.RPCMethodKey
+
+	// `id` property of JSON-RPC request or response.
+	JsonRpcId = semconv.RPCJsonrpcRequestIDKey
+
+	// `error_code` property of JSON-RPC request or response. Type: int.
+	JsonRpcErrorCode = semconv.RPCJsonrpcErrorCodeKey
 )
