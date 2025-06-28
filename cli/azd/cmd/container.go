@@ -27,6 +27,7 @@ import (
 	"github.com/azure/azure-dev/cli/azd/pkg/account"
 	"github.com/azure/azure-dev/cli/azd/pkg/ai"
 	"github.com/azure/azure-dev/cli/azd/pkg/alpha"
+	"github.com/azure/azure-dev/cli/azd/pkg/armmsi"
 	"github.com/azure/azure-dev/cli/azd/pkg/auth"
 	"github.com/azure/azure-dev/cli/azd/pkg/azapi"
 	"github.com/azure/azure-dev/cli/azd/pkg/azd"
@@ -59,6 +60,7 @@ import (
 	"github.com/azure/azure-dev/cli/azd/pkg/prompt"
 	"github.com/azure/azure-dev/cli/azd/pkg/state"
 	"github.com/azure/azure-dev/cli/azd/pkg/templates"
+	"github.com/azure/azure-dev/cli/azd/pkg/tools/az"
 	"github.com/azure/azure-dev/cli/azd/pkg/tools/docker"
 	"github.com/azure/azure-dev/cli/azd/pkg/tools/dotnet"
 	"github.com/azure/azure-dev/cli/azd/pkg/tools/git"
@@ -193,6 +195,10 @@ func registerCommonDependencies(container *ioc.NestedContainer) {
 
 	container.MustRegisterSingleton(func(cmd *cobra.Command) CmdAnnotations {
 		return cmd.Annotations
+	})
+
+	container.MustRegisterSingleton(func(cmd *cobra.Command) CmdCalledAs {
+		return CmdCalledAs(cmd.CalledAs())
 	})
 
 	// Azd Context
@@ -587,6 +593,7 @@ func registerCommonDependencies(container *ioc.NestedContainer) {
 	container.MustRegisterSingleton(account.NewSubscriptionCredentialProvider)
 	container.MustRegisterSingleton(azapi.NewManagedClustersService)
 	container.MustRegisterSingleton(entraid.NewEntraIdService)
+	container.MustRegisterSingleton(armmsi.NewArmMsiService)
 	container.MustRegisterSingleton(azapi.NewContainerRegistryService)
 	container.MustRegisterSingleton(containerapps.NewContainerAppService)
 	container.MustRegisterSingleton(containerregistry.NewRemoteBuildManager)
@@ -619,6 +626,7 @@ func registerCommonDependencies(container *ioc.NestedContainer) {
 	container.MustRegisterSingleton(swa.NewCli)
 	container.MustRegisterScoped(ai.NewPythonBridge)
 	container.MustRegisterScoped(project.NewAiHelper)
+	container.MustRegisterSingleton(az.NewCli)
 
 	// Provisioning
 	container.MustRegisterSingleton(func(

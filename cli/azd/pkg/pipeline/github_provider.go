@@ -355,30 +355,6 @@ func (p *GitHubCiProvider) preConfigureCheck(
 		return updated, err
 	}
 
-	authType := PipelineAuthType(pipelineManagerArgs.PipelineAuthTypeName)
-
-	// Federated Auth + Terraform is not a supported combination
-	if infraOptions.Provider == provisioning.Terraform {
-		// Throw error if Federated auth is explicitly requested
-		if authType == AuthTypeFederated {
-			return false, fmt.Errorf(
-				//nolint:lll
-				"Terraform does not support federated authentication. To explicitly use client credentials set the %s flag. %w",
-				output.WithBackticks("--auth-type client-credentials"),
-				ErrAuthNotSupported,
-			)
-		} else if authType == "" {
-			// If not explicitly set, show warning
-			p.console.MessageUxItem(
-				ctx,
-				&ux.WarningMessage{
-					//nolint:lll
-					Description: "Terraform provisioning does not support federated authentication, defaulting to Service Principal with client ID and client secret.\n",
-				},
-			)
-		}
-	}
-
 	return updated, nil
 }
 
@@ -394,11 +370,6 @@ func (p *GitHubCiProvider) credentialOptions(
 	authType PipelineAuthType,
 	credentials *entraid.AzureCredentials,
 ) (*CredentialOptions, error) {
-	// Default auth type to client-credentials for terraform
-	if infraOptions.Provider == provisioning.Terraform && authType == "" {
-		authType = AuthTypeClientCredentials
-	}
-
 	if authType == AuthTypeClientCredentials {
 		return &CredentialOptions{
 			EnableClientCredentials: true,
@@ -459,19 +430,18 @@ func (p *GitHubCiProvider) configureConnection(
 	ctx context.Context,
 	repoDetails *gitRepositoryDetails,
 	infraOptions provisioning.Options,
-	servicePrincipal *graphsdk.ServicePrincipal,
+	authConfig *authConfiguration,
 	credentialOptions *CredentialOptions,
-	credentials *entraid.AzureCredentials,
 ) error {
 	repoSlug := repoDetails.owner + "/" + repoDetails.repoName
 	if credentialOptions.EnableClientCredentials {
-		err := p.configureClientCredentialsAuth(ctx, infraOptions, repoSlug, credentials)
+		err := p.configureClientCredentialsAuth(ctx, infraOptions, repoSlug, authConfig.AzureCredentials)
 		if err != nil {
 			return fmt.Errorf("configuring client credentials auth: %w", err)
 		}
 	}
 
-	if err := p.setPipelineVariables(ctx, repoSlug, infraOptions, servicePrincipal); err != nil {
+	if err := p.setPipelineVariables(ctx, repoSlug, infraOptions, authConfig.TenantId, authConfig.ClientId); err != nil {
 		return fmt.Errorf("failed setting pipeline variables: %w", err)
 	}
 
@@ -486,14 +456,14 @@ func (p *GitHubCiProvider) setPipelineVariables(
 	ctx context.Context,
 	repoSlug string,
 	infraOptions provisioning.Options,
-	servicePrincipal *graphsdk.ServicePrincipal,
+	tenantId, clientId string,
 ) error {
 	for name, value := range map[string]string{
 		environment.EnvNameEnvVarName:        p.env.Name(),
 		environment.LocationEnvVarName:       p.env.GetLocation(),
 		environment.SubscriptionIdEnvVarName: p.env.GetSubscriptionId(),
-		environment.TenantIdEnvVarName:       *servicePrincipal.AppOwnerOrganizationId,
-		"AZURE_CLIENT_ID":                    servicePrincipal.AppId,
+		environment.TenantIdEnvVarName:       tenantId,
+		"AZURE_CLIENT_ID":                    clientId,
 	} {
 		if err := p.ghCli.SetVariable(ctx, repoSlug, name, value); err != nil {
 			return fmt.Errorf("failed setting %s variable: %w", name, err)
