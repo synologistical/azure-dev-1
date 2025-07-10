@@ -25,6 +25,7 @@ armcognitiveservices
 armcosmos
 armdeploymentstacks
 armmachinelearning
+armmsi
 armresourcegraph
 armsql
 aspnet
@@ -58,8 +59,8 @@ azuretools
 azureutil
 azureyaml
 Backticks
-bicept
 bicepparam
+bicept
 blockblob
 BOOLSLICE
 buildargs
@@ -112,7 +113,7 @@ flexconsumption
 Frontends
 fsnotify
 funcapp
-functestapp
+funcignore
 functionapp
 gjson
 go-imath
@@ -136,10 +137,12 @@ jmes
 jquery
 keychain
 kubelogin
+langchaingo
 LASTEXITCODE
 ldflags
 lechnerc77
 libc
+llms
 memfs
 mergo
 mgmt
@@ -151,14 +154,15 @@ mockarmresources
 mockazcli
 mongojs
 mvnw
+mysqladmin
 mysqlclient
 mysqldb
-mysqladmin
 nobanner
 nodeapp
 nolint
 nologo
 notrail
+ollama
 omitempty
 oneauth
 oneline
@@ -179,6 +183,7 @@ pflag
 pgadmin
 posix
 preinit
+protogen
 proxying
 psanford
 psycopg
@@ -205,6 +210,7 @@ serverfarms
 servicebus
 setenvs
 skus
+SliceOfPtrs
 snapshotter
 springapp
 sqlserver
@@ -242,6 +248,7 @@ utsname
 vite
 vsrpc
 vuejs
+webappignore
 webfrontend
 westus2
 wireinject

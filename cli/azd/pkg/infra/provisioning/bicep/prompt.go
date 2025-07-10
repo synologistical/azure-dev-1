@@ -105,7 +105,7 @@ func (a *BicepProvider) locationsWithQuotaFor(
 	var sharedResults sync.Map
 	var wg sync.WaitGroup
 
-	azureAiServicesLocations, err := a.azureClient.GetResourceSkuLocations(
+	azureAiServicesLocations, err := a.azapi.GetResourceSkuLocations(
 		ctx, subId, "AIServices", "S0", "Standard", "accounts")
 	if err != nil {
 		return nil, fmt.Errorf("getting Azure AI Services locations: %w", err)
@@ -124,7 +124,7 @@ func (a *BicepProvider) locationsWithQuotaFor(
 		wg.Add(1)
 		go func(location string) {
 			defer wg.Done()
-			results, err := a.azureClient.GetAiUsages(ctx, subId, location)
+			results, err := a.azapi.GetAiUsages(ctx, subId, location)
 			if err != nil {
 				// log the error but don't return it
 				log.Println("error getting usage for location", location, ":", err)
@@ -350,32 +350,69 @@ func (p *BicepProvider) promptForParameter(
 			return nil, fmt.Errorf("parameter '%s' has no allowed values defined", key)
 		}
 
+		// defaultOption enables running with --no-prompt, taking the default value. We use the first option as default.
+		defaultOption := options[0]
+		// user can override the default value with azd metadata
+		if azdMetadata.Default != nil {
+			defaultValStr := fmt.Sprintf("%v", azdMetadata.Default)
+			if !slices.Contains(options, defaultValStr) {
+				return nil, fmt.Errorf(
+					"default value '%s' is not in the allowed values for parameter '%s'", defaultValStr, key)
+			}
+			defaultOption = defaultValStr
+		}
+
 		choice, err := p.console.Select(ctx, input.ConsoleOptions{
-			Message: msg,
-			Help:    help,
-			Options: options,
+			Message:      msg,
+			Help:         help,
+			Options:      options,
+			DefaultValue: defaultOption,
 		})
 		if err != nil {
 			return nil, err
 		}
 		value = (*param.AllowedValues)[choice]
 	} else {
+		var defaultValueForPrompt any
+		if azdMetadata.Default != nil {
+			defaultValueForPrompt = azdMetadata.Default
+		}
 		switch paramType {
 		case provisioning.ParameterTypeBoolean:
 			options := []string{"False", "True"}
+			if defaultValueForPrompt != nil {
+				strVal := fmt.Sprintf("%v", defaultValueForPrompt)
+				if strings.ToLower(strVal) == "true" {
+					defaultValueForPrompt = "True"
+				} else {
+					defaultValueForPrompt = "False"
+				}
+			}
 			choice, err := p.console.Select(ctx, input.ConsoleOptions{
-				Message: msg,
-				Help:    help,
-				Options: options,
+				Message:      msg,
+				Help:         help,
+				Options:      options,
+				DefaultValue: defaultValueForPrompt,
 			})
 			if err != nil {
 				return nil, err
 			}
 			value = (options[choice] == "True")
 		case provisioning.ParameterTypeNumber:
+			if defaultValueForPrompt != nil {
+				switch v := defaultValueForPrompt.(type) {
+				case int:
+					defaultValueForPrompt = fmt.Sprintf("%d", v)
+				case float64:
+					defaultValueForPrompt = fmt.Sprintf("%d", int(v))
+				default:
+					return nil, fmt.Errorf("unsupported default value type %T for number parameter: %v", v, key)
+				}
+			}
 			userValue, err := promptWithValidation(ctx, p.console, input.ConsoleOptions{
-				Message: msg,
-				Help:    help,
+				Message:      msg,
+				Help:         help,
+				DefaultValue: defaultValueForPrompt,
 			}, convertInt, validateValueRange(key, param.MinValue, param.MaxValue))
 			if err != nil {
 				return nil, err
@@ -383,9 +420,10 @@ func (p *BicepProvider) promptForParameter(
 			value = userValue
 		case provisioning.ParameterTypeString:
 			userValue, err := promptWithValidation(ctx, p.console, input.ConsoleOptions{
-				Message:    msg,
-				Help:       help,
-				IsPassword: isSecuredParam,
+				Message:      msg,
+				Help:         help,
+				IsPassword:   isSecuredParam,
+				DefaultValue: defaultValueForPrompt,
 			}, convertString, validateLengthRange(key, param.MinLength, param.MaxLength))
 			if err != nil {
 				return nil, err
